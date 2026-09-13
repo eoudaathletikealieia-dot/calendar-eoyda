@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Ε.Ο.Υ.Δ.Α. — Πρόγραμμα Αθλητικής Αλιείας</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -213,6 +216,7 @@
   .form-row input, .form-row select { width:100%; background:var(--mid); border:1px solid var(--border);
     border-radius:6px; padding:8px 12px; color:var(--text); font-size:13px; font-family:'IBM Plex Sans',sans-serif; outline:none; }
   .form-row input:focus, .form-row select:focus { border-color:var(--accent); }
+  .form-row input[type=date] { color-scheme: dark; cursor:pointer; }
   .form-row select option { background:#163356; }
   .form-row input[type=checkbox] { width:auto; margin-right:8px; }
   .form-btns { display:flex; gap:10px; margin-top:20px; }
@@ -340,12 +344,12 @@
       </select>
     </div>
     <div class="form-row">
-      <label>Κύρια Ημερομηνία (π.χ. 21/9/2025 ή 8-9/11/2025)</label>
-      <input type="text" id="fDate" placeholder="π.χ. 21/9/2025">
+      <label>Ημερομηνία Έναρξης</label>
+      <input type="date" id="fDateStart">
     </div>
     <div class="form-row">
-      <label>Εναλλακτική Ημερομηνία (αφήστε κενό αν δεν υπάρχει)</label>
-      <input type="text" id="fDateAlt" placeholder="π.χ. 28/9/2025">
+      <label>Ημερομηνία Λήξης (αφήστε κενό αν είναι μονοήμερος)</label>
+      <input type="date" id="fDateEnd">
     </div>
     <div class="form-row">
       <label>Τύπος Αγώνα</label>
@@ -728,6 +732,10 @@ function parseDate(str) {
   const mMulti = clean.match(/^(\d+)(?:[-–]\d+)+[/\-](\d+)[/\-](\d{4})$/);
   if (mMulti) return new Date(+mMulti[3], +mMulti[2]-1, +mMulti[1]);
 
+  // ISO format: "2026-09-20" — use dateISO field if available
+  const mISO = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (mISO) return new Date(+mISO[1], +mISO[2]-1, +mISO[3]);
+
   // Simple numeric: "21/9/2025"
   const simple = clean.match(/^(\d+)[/\-](\d+)[/\-](\d{4})$/);
   if (simple) return new Date(+simple[3], +simple[2]-1, +simple[1]);
@@ -792,8 +800,8 @@ function filteredEvents() {
     }
     return true;
   }).sort((a, b) => {
-    const da = parseDate(a.date);
-    const db = parseDate(b.date);
+    const da = a.dateISO ? parseDate(a.dateISO) : parseDate(a.date);
+    const db = b.dateISO ? parseDate(b.dateISO) : parseDate(b.date);
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
@@ -801,7 +809,11 @@ function filteredEvents() {
   });
 }
 function nextEvent() {
-  return EVENTS.filter(e => { const d = parseDate(e.date); return d && d >= TODAY; }).sort((a,b)=>parseDate(a.date)-parseDate(b.date))[0];
+  return EVENTS.filter(e => { const d = e.dateISO ? parseDate(e.dateISO) : parseDate(e.date); return d && d >= TODAY; }).sort((a,b)=>{
+    const da = a.dateISO ? parseDate(a.dateISO) : parseDate(a.date);
+    const db = b.dateISO ? parseDate(b.dateISO) : parseDate(b.date);
+    return da - db;
+  })[0];
 }
 function isPast(e) { const d=parseDate(e.date); return d && d < TODAY; }
 function isNext(e) { const ne=nextEvent(); return ne && e===ne; }
@@ -930,8 +942,11 @@ function openEditForm(idx) {
   document.getElementById("editIdx").value = isNew ? "" : idx;
   const e = isNew ? {} : EVENTS[idx];
   document.getElementById("fSport").value    = e.sport    || "ΦΕΛΟΣ ΘΑΛΑΣΣΑ";
-  document.getElementById("fDate").value     = e.date     || "";
-  document.getElementById("fDateAlt").value  = e.dateAlt  || "";
+  // Parse existing date to ISO for date input
+  const _ds = parseDateToISO(e.date || "");
+  const _de = parseDateToISO(e.dateAlt || "");
+  document.getElementById("fDateStart").value = _ds;
+  document.getElementById("fDateEnd").value   = _de;
   document.getElementById("fType").value     = e.type     || "";
   document.getElementById("fLocation").value = e.location || "";
   document.getElementById("fOrg").value      = e.org      || "";
@@ -939,12 +954,36 @@ function openEditForm(idx) {
   document.getElementById("editOverlay").classList.add("open");
 }
 function closeEditForm() { document.getElementById("editOverlay").classList.remove("open"); }
+// Convert ISO date (2026-09-20) to Greek display (20 Σεπτεμβρίου 2026)
+const GREEK_MONTHS_DISPLAY = [
+    'Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου',
+    'Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'
+  ];
+  function isoToGreek(iso) {
+    if (!iso) return "";
+    const [y,m,d] = iso.split('-').map(Number);
+    return d + ' ' + GREEK_MONTHS_DISPLAY[m-1] + ' ' + y;
+  }
+  // Convert any stored date string to ISO for date picker
+  function parseDateToISO(str) {
+    if (!str) return "";
+    const d = parseDate(str);
+    if (!d) return "";
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
 function saveEvent() {
   const idxStr = document.getElementById("editIdx").value;
+  const _start = document.getElementById("fDateStart").value;
+  const _end   = document.getElementById("fDateEnd").value;
   const ev = {
     sport:      document.getElementById("fSport").value.trim(),
-    date:       document.getElementById("fDate").value.trim(),
-    dateAlt:    document.getElementById("fDateAlt").value.trim(),
+    date:       isoToGreek(_start),
+    dateAlt:    isoToGreek(_end),
+    dateISO:    _start,
+    dateISOEnd: _end,
     type:       document.getElementById("fType").value.trim(),
     location:   document.getElementById("fLocation").value.trim(),
     org:        document.getElementById("fOrg").value.trim(),
